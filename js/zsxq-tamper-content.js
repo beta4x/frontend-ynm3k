@@ -1,80 +1,119 @@
 // ==UserScript==
 // @name         知识星球复制、剪藏助手（顶呱呱版）
 // @namespace    http://tampermonkey.net/
-// @version      2026-04-18
+// @version      2026-04-19
 // @description  功能：解除复制限制；解决用网页剪藏工具剪藏时，换行符丢失的问题。上述两项功能，列表页、详情页都支持。
 // @author       beta4x
+// @license      AGPL-3.0-only; https://www.gnu.org/licenses/agpl-3.0.en.html
+// @copyright    2026, beta4x (https://github.com/beta4x)
 // @match        https://wx.zsxq.com/group/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=zsxq.com
 // @grant        none
 // ==/UserScript==
+
+// GitHub
+// 项目地址：https://github.com/beta4x/frontend-ynm3k/blob/main/js/zsxq-tamper-content.js
+// 使用帮助：https://github.com/beta4x/frontend-ynm3k/blob/main/md/zsxq-tamper-content.md
 
 
 (function () {
     'use strict';
 
     const CONFIG = {
-        observerContainerSelector: 'div.topic-container, div.topic-detail-panel',
+        observerContainerSelector: 'body',
+        targetAncestorSelector: 'div.topic-container, div.topic-detail-panel',
         // enable copy
         disabledCopySelector: 'div.disabled-copy',
-        disabledCopyAttribute: 'disabled-copy',
-        disabledCopyReplaceAttribute: 'enabled-copy',
+        disabledCopyClassName: 'disabled-copy',
+        enabledCopyClassName: 'enabled-copy',
         // wrap content with pre tag
         preTargetSelector: 'div.talk-content-container, div.answer-content-container',
-        preProcessedMark: 'myPreWrapper',
+        preStyleId: 'zsxq-content-pre-style',
+        preStyleClass: 'content-pre-wrapper',
         debounceDelay: 400,
         debug: false
     };
 
-    function getObserverContainer() {
-        return document.querySelector(CONFIG.observerContainerSelector) || document.body;
+    function injectStyle() {
+        if (document.getElementById(CONFIG.preStyleId)) return;
+        const style = document.createElement('style');
+        style.id = CONFIG.preStyleId;
+        style.textContent = `
+.${CONFIG.enabledCopyClassName} {
+    user-select: auto !important;
+    -webkit-user-select: auto !important;
+}
+
+pre.${CONFIG.preStyleClass} {
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-family: inherit;
+    margin: 0;
+}
+`.trim();
+        document.head.appendChild(style);
     }
 
-    function getObserverContainers() {
-        const containers = document.querySelectorAll(CONFIG.observerContainerSelector);
+    function getSelectorContainer(selector) {
+        return document.querySelector(selector) || document.body;
+    }
+
+    function getSelectorContainers(selector) {
+        const containers = document.querySelectorAll(selector);
         return containers.length > 0 ? containers : [document.body];
     }
 
+    function debugLog(logLevel, fnName, message) {
+        const method = console[logLevel] || console.log;
+        if (CONFIG.debug) method(`[${fnName}] ${message}`);
+    }
+
     function enableCopy(container) {
-        const functionName = enableCopy.name;
+        const fnName = enableCopy.name;
         const targets = container.querySelectorAll(CONFIG.disabledCopySelector);
         targets.forEach(target => {
-            target.classList.replace(CONFIG.disabledCopyAttribute, CONFIG.disabledCopyReplaceAttribute);
-            if (CONFIG.debug) console.log(`[${functionName}] success!`);
+            target.classList.replace(CONFIG.disabledCopyClassName, CONFIG.enabledCopyClassName);
+            debugLog('log', fnName, 'success!');
         });
     }
 
     function wrapContentWithPre(container) {
-        const functionName = wrapContentWithPre.name;
+        const fnName = wrapContentWithPre.name;
         const targets = container.querySelectorAll(CONFIG.preTargetSelector);
         targets.forEach(target => {
-            if (target.firstElementChild?.tagName === 'PRE'
-                && target.firstElementChild?.dataset.processedBy === CONFIG.preProcessedMark) return;
-
-            const pre = document.createElement('pre');
-            pre.style.whiteSpace = 'pre-wrap';
-            pre.style.wordBreak = 'break-word';
-            pre.style.fontFamily = 'inherit';
-            pre.replaceChildren(...target.childNodes);
-            pre.dataset.processedBy = CONFIG.preProcessedMark;
+            if (target.childNodes.length === 0 || (target.firstElementChild?.tagName === 'PRE' && target.firstElementChild?.classList.contains(CONFIG.preStyleClass))) return;
             try {
+                const pre = document.createElement('pre');
+                pre.classList.add(CONFIG.preStyleClass);
+                pre.replaceChildren(...target.childNodes);
                 target.replaceChildren(pre);
-                if (CONFIG.debug) console.log(`[${functionName}] success!`);
+                debugLog('log', fnName, 'success!');
             } catch (e) {
-                if (CONFIG.debug) console.error(`[${functionName}] failed!`, e);
+                debugLog('error', fnName, `failed! ${e.message}`);
             }
         });
     }
 
     function tamperContent() {
-        const functionName = tamperContent.name;
-        if (CONFIG.debug) console.log(`[${functionName}] begin...`);
+        const fnName = tamperContent.name;
+        debugLog('log', fnName, 'begin...');
 
-        const containers = getObserverContainers();
+        // 先找到 target ancestor container，再找到 target container。能提高性能，但也可能属于过度设计。
+        const containers = getSelectorContainers(CONFIG.targetAncestorSelector);
         containers.forEach(container => {
             enableCopy(container);
             wrapContentWithPre(container);
         });
+    }
+
+    let observer = null;
+    function safeTamperContent() {
+        observer?.disconnect();
+        try {
+            tamperContent();
+        } finally {
+            startObserver();
+        }
     }
 
     function debounce(fn, delay) {
@@ -85,17 +124,16 @@
         };
     }
 
-    const debouncedWrap = debounce(tamperContent, CONFIG.debounceDelay);
-    const observer = new MutationObserver(debouncedWrap);
+    const debouncedTamperContent = debounce(safeTamperContent, CONFIG.debounceDelay);
+    observer = new MutationObserver(debouncedTamperContent);
 
     function startObserver() {
         observer.disconnect();
-        getObserverContainers().forEach(container => {
-            // 没有设置 {attributes: true}，因此 setAttribute() 或 classList.replace() 都不会触发回调。
-            observer.observe(container, { childList: true, subtree: true });
-        });
+        const observerContainer = getSelectorContainer(CONFIG.observerContainerSelector);
+        // 没有设置 {attributes: true}，因此 setAttribute() 或 classList.replace() 都不会触发回调。
+        observer.observe(observerContainer, { childList: true, subtree: true });
     }
 
-    tamperContent();
-    startObserver();
+    injectStyle();
+    safeTamperContent();
 })();
