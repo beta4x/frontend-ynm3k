@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         知识星球复制、剪藏助手（顶呱呱版）
 // @namespace    http://tampermonkey.net/
-// @version      2026-04-19
+// @version      2026-04-20
 // @description  功能：解除复制限制；解决用网页剪藏工具剪藏时，换行符丢失的问题。上述两项功能，列表页、详情页都支持。
 // @author       beta4x
 // @license      AGPL-3.0-only; https://www.gnu.org/licenses/agpl-3.0.en.html
@@ -68,19 +68,20 @@ pre.${CONFIG.preStyleClass} {
         if (CONFIG.debug) method(`[${fnName}] ${message}`);
     }
 
+    // 知识星球是否允许复制，是由星主设置的；如果本来就允许复制，不会真正执行 class name 替换操作。
     function enableCopy(container) {
         const fnName = enableCopy.name;
-        const targets = container.querySelectorAll(CONFIG.disabledCopySelector);
-        targets.forEach(target => {
+        const target = container.querySelector(CONFIG.disabledCopySelector);
+        if (target) {
             target.classList.replace(CONFIG.disabledCopyClassName, CONFIG.enabledCopyClassName);
             debugLog('log', fnName, 'success!');
-        });
+        }
     }
 
     function wrapContentWithPre(container) {
         const fnName = wrapContentWithPre.name;
-        const targets = container.querySelectorAll(CONFIG.preTargetSelector);
-        targets.forEach(target => {
+        const target = container.querySelector(CONFIG.preTargetSelector);
+        if (target) {
             if (target.childNodes.length === 0 || (target.firstElementChild?.tagName === 'PRE' && target.firstElementChild?.classList.contains(CONFIG.preStyleClass))) return;
             try {
                 const pre = document.createElement('pre');
@@ -91,7 +92,7 @@ pre.${CONFIG.preStyleClass} {
             } catch (e) {
                 debugLog('error', fnName, `failed! ${e.message}`);
             }
-        });
+        }
     }
 
     function tamperContent() {
@@ -121,7 +122,7 @@ pre.${CONFIG.preStyleClass} {
         return function (...args) {
             clearTimeout(timer);
             timer = setTimeout(() => fn.apply(this, args), delay);
-        };
+        }
     }
 
     const debouncedTamperContent = debounce(safeTamperContent, CONFIG.debounceDelay);
